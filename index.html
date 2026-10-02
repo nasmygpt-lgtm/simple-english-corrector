@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simple English Corrector</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #f3f4f6;
+    color: #1f2937;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .card {
+    background: #fff;
+    width: 100%;
+    max-width: 720px;
+    border-radius: 14px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+    padding: 28px;
+  }
+  h1 {
+    font-size: 22px;
+    margin-bottom: 4px;
+  }
+  p.sub {
+    color: #6b7280;
+    font-size: 14px;
+    margin-bottom: 20px;
+  }
+  label {
+    display: block;
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 6px;
+  }
+  textarea {
+    width: 100%;
+    min-height: 130px;
+    padding: 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    font-size: 15px;
+    font-family: inherit;
+    resize: vertical;
+    line-height: 1.5;
+  }
+  textarea:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+  }
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    margin: 16px 0;
+    flex-wrap: wrap;
+  }
+  button {
+    border: none;
+    border-radius: 10px;
+    padding: 11px 18px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .primary { background: #6366f1; color: #fff; }
+  .primary:hover { background: #4f46e5; }
+  .ghost { background: #e5e7eb; color: #374151; }
+  .ghost:hover { background: #d1d5db; }
+  .output-box {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 14px;
+    min-height: 100px;
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    color: #111827;
+  }
+  .output-box.empty { color: #9ca3af; }
+  .status {
+    font-size: 13px;
+    color: #059669;
+    margin-top: 8px;
+    height: 16px;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Simple English Corrector</h1>
+    <p class="sub">Paste your sentence. Get a simple, natural correction — not overly formal.</p>
+
+    <label for="input">Your text</label>
+    <textarea id="input" placeholder="Paste your sentence here..."></textarea>
+
+    <div class="btn-row">
+      <button class="primary" onclick="correctText()">Correct</button>
+      <button class="ghost" onclick="copyOutput()">Copy result</button>
+      <button class="ghost" onclick="clearAll()">Clear</button>
+    </div>
+
+    <label>Corrected text</label>
+    <div id="output" class="output-box empty">Your corrected text will appear here.</div>
+    <div id="status" class="status"></div>
+  </div>
+
+<script>
+function correctText() {
+  let text = document.getElementById('input').value.trim();
+  if (!text) {
+    setOutput('Please paste some text first.', true);
+    return;
+  }
+
+  let corrected = fixText(text);
+  setOutput(corrected, false);
+  setStatus('Done. You can copy the result.');
+}
+
+function fixText(text) {
+  let lines = text.split(/\n+/).map(l => l.trim()).filter(l => l.length);
+  let fixedLines = lines.map(fixSentence);
+  return fixedLines.join('\n\n');
+}
+
+function fixSentence(line) {
+  let s = ' ' + line + ' ';
+
+  // Common fixes (word-boundary, case-insensitive)
+  const rules = [
+    [/\bas i informed in this morning\b/gi, 'as I informed this morning'],
+    [/\binformed in this morning\b/gi, 'informed this morning'],
+    [/\btoday sick leave\b/gi, 'is on sick leave today'],
+    [/\bis today sick\b/gi, 'is sick today'],
+    [/\bweekly off\b/gi, 'weekly off'],
+    [/\binstead of sunday\b/gi, 'instead of Sunday'],
+    [/\bdue to her health condition\b/gi, 'because of her health'],
+    [/\bi will be\b/gi, 'I will be'],
+    [/\bi need\b/gi, 'I need'],
+    [/\bi am\b/gi, 'I am'],
+    [/\bi have\b/gi, 'I have'],
+    [/\bsunday will be taking off\b/gi, 'and will take Sunday off'],
+    [/\btaking off\b/gi, 'taking off'],
+  ];
+  rules.forEach(([re, rep]) => { s = s.replace(re, rep); });
+
+  s = s.trim();
+
+  // Capitalize standalone "i"
+  s = s.replace(/\bi\b/g, 'I');
+
+  // Capitalize weekdays and months
+  const caps = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday',
+                'january','february','march','april','may','june','july','august',
+                'september','october','november','december','tomorrow'];
+  caps.forEach(w => {
+    s = s.replace(new RegExp('\\b' + w + '\\b', 'gi'), m => {
+      // keep "tomorrow" lowercase unless at start
+      if (w === 'tomorrow') return m;
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    });
+  });
+
+  // Collapse multiple spaces
+  s = s.replace(/\s+/g, ' ').trim();
+
+  // Capitalize first letter
+  if (s.length) s = s.charAt(0).toUpperCase() + s.slice(1);
+
+  // Ensure ending punctuation
+  if (s.length && !/[.!?]$/.test(s)) s += '.';
+
+  return s;
+}
+
+function setOutput(text, isEmptyStyle) {
+  const out = document.getElementById('output');
+  out.textContent = text;
+  out.classList.toggle('empty', !!isEmptyStyle);
+}
+
+function setStatus(msg) {
+  document.getElementById('status').textContent = msg || '';
+}
+
+function copyOutput() {
+  const out = document.getElementById('output');
+  if (out.classList.contains('empty')) { setStatus('Nothing to copy yet.'); return; }
+  navigator.clipboard.writeText(out.textContent)
+    .then(() => setStatus('Copied to clipboard!'))
+    .catch(() => setStatus('Could not copy automatically — select and copy manually.'));
+}
+
+function clearAll() {
+  document.getElementById('input').value = '';
+  setOutput('Your corrected text will appear here.', true);
+  setStatus('');
+}
+</script>
+</body>
+</html>
