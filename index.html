@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Simple English Corrector</title>
+<title>Simple English Corrector (AI)</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -24,20 +24,24 @@
     box-shadow: 0 8px 30px rgba(0,0,0,0.08);
     padding: 28px;
   }
-  h1 {
-    font-size: 22px;
-    margin-bottom: 4px;
-  }
-  p.sub {
-    color: #6b7280;
-    font-size: 14px;
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  p.sub { color: #6b7280; font-size: 14px; margin-bottom: 20px; }
+  label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; margin-top: 4px; }
+  .key-box {
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+    border-radius: 10px;
+    padding: 14px;
     margin-bottom: 20px;
   }
-  label {
-    display: block;
-    font-weight: 600;
+  .key-box small { color: #92400e; display: block; margin-top: 6px; line-height: 1.5; }
+  input[type=password], input[type=text] {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
     font-size: 14px;
-    margin-bottom: 6px;
+    font-family: inherit;
   }
   textarea {
     width: 100%;
@@ -50,160 +54,162 @@
     resize: vertical;
     line-height: 1.5;
   }
-  textarea:focus {
+  textarea:focus, input:focus {
     outline: none;
     border-color: #6366f1;
     box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
   }
-  .btn-row {
-    display: flex;
-    gap: 10px;
-    margin: 16px 0;
-    flex-wrap: wrap;
-  }
+  .btn-row { display: flex; gap: 10px; margin: 16px 0; flex-wrap: wrap; }
   button {
-    border: none;
-    border-radius: 10px;
-    padding: 11px 18px;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.15s;
+    border: none; border-radius: 10px; padding: 11px 18px;
+    font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.15s;
   }
+  button:disabled { opacity: 0.6; cursor: not-allowed; }
   .primary { background: #6366f1; color: #fff; }
-  .primary:hover { background: #4f46e5; }
+  .primary:hover:not(:disabled) { background: #4f46e5; }
   .ghost { background: #e5e7eb; color: #374151; }
   .ghost:hover { background: #d1d5db; }
+  .small-btn { padding: 7px 12px; font-size: 13px; }
   .output-box {
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 14px;
-    min-height: 100px;
-    font-size: 15px;
-    line-height: 1.6;
-    white-space: pre-wrap;
-    color: #111827;
+    background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px;
+    padding: 14px; min-height: 100px; font-size: 15px; line-height: 1.6;
+    white-space: pre-wrap; color: #111827;
   }
   .output-box.empty { color: #9ca3af; }
-  .status {
-    font-size: 13px;
-    color: #059669;
-    margin-top: 8px;
-    height: 16px;
-  }
+  .status { font-size: 13px; margin-top: 8px; min-height: 16px; }
+  .status.ok { color: #059669; }
+  .status.err { color: #dc2626; }
+  .saved-tag { font-size: 12px; color: #059669; margin-left: 6px; }
 </style>
 </head>
 <body>
   <div class="card">
     <h1>Simple English Corrector</h1>
-    <p class="sub">Paste your sentence. Get a simple, natural correction — not overly formal.</p>
+    <p class="sub">Paste a sentence, get a simple natural correction powered by Google Gemini.</p>
 
-    <label for="input">Your text</label>
+    <div class="key-box">
+      <label for="apikey">① Paste your Gemini API key here <span id="savedTag" class="saved-tag"></span></label>
+      <input type="password" id="apikey" placeholder="AIza..." autocomplete="off">
+      <div class="btn-row" style="margin:10px 0 0;">
+        <button class="ghost small-btn" onclick="saveKey()">Save key</button>
+        <button class="ghost small-btn" onclick="clearKey()">Forget key</button>
+      </div>
+      <small>
+        Your key is stored ONLY in this browser (localStorage) and sent only to Google.
+        It is never uploaded or shared. Get a free key at
+        <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com/apikey</a>.
+      </small>
+    </div>
+
+    <label for="input">② Your text</label>
     <textarea id="input" placeholder="Paste your sentence here..."></textarea>
 
     <div class="btn-row">
-      <button class="primary" onclick="correctText()">Correct</button>
+      <button class="primary" id="correctBtn" onclick="correctText()">Correct</button>
       <button class="ghost" onclick="copyOutput()">Copy result</button>
       <button class="ghost" onclick="clearAll()">Clear</button>
     </div>
 
-    <label>Corrected text</label>
+    <label>③ Corrected text</label>
     <div id="output" class="output-box empty">Your corrected text will appear here.</div>
     <div id="status" class="status"></div>
   </div>
 
 <script>
-function correctText() {
-  let text = document.getElementById('input').value.trim();
-  if (!text) {
-    setOutput('Please paste some text first.', true);
-    return;
+const KEY_STORE = 'gemini_api_key';
+
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem(KEY_STORE);
+  if (saved) {
+    document.getElementById('apikey').value = saved;
+    document.getElementById('savedTag').textContent = '✓ saved in this browser';
   }
+});
 
-  let corrected = fixText(text);
-  setOutput(corrected, false);
-  setStatus('Done. You can copy the result.');
+function saveKey() {
+  const k = document.getElementById('apikey').value.trim();
+  if (!k) { setStatus('Enter a key first.', 'err'); return; }
+  localStorage.setItem(KEY_STORE, k);
+  document.getElementById('savedTag').textContent = '✓ saved in this browser';
+  setStatus('Key saved in your browser.', 'ok');
 }
 
-function fixText(text) {
-  let lines = text.split(/\n+/).map(l => l.trim()).filter(l => l.length);
-  let fixedLines = lines.map(fixSentence);
-  return fixedLines.join('\n\n');
+function clearKey() {
+  localStorage.removeItem(KEY_STORE);
+  document.getElementById('apikey').value = '';
+  document.getElementById('savedTag').textContent = '';
+  setStatus('Key removed from this browser.', 'ok');
 }
 
-function fixSentence(line) {
-  let s = ' ' + line + ' ';
+async function correctText() {
+  const key = document.getElementById('apikey').value.trim();
+  const text = document.getElementById('input').value.trim();
 
-  // Common fixes (word-boundary, case-insensitive)
-  const rules = [
-    [/\bas i informed in this morning\b/gi, 'as I informed this morning'],
-    [/\binformed in this morning\b/gi, 'informed this morning'],
-    [/\btoday sick leave\b/gi, 'is on sick leave today'],
-    [/\bis today sick\b/gi, 'is sick today'],
-    [/\bweekly off\b/gi, 'weekly off'],
-    [/\binstead of sunday\b/gi, 'instead of Sunday'],
-    [/\bdue to her health condition\b/gi, 'because of her health'],
-    [/\bi will be\b/gi, 'I will be'],
-    [/\bi need\b/gi, 'I need'],
-    [/\bi am\b/gi, 'I am'],
-    [/\bi have\b/gi, 'I have'],
-    [/\bsunday will be taking off\b/gi, 'and will take Sunday off'],
-    [/\btaking off\b/gi, 'taking off'],
-  ];
-  rules.forEach(([re, rep]) => { s = s.replace(re, rep); });
+  if (!key) { setStatus('Please paste and save your Gemini API key first.', 'err'); return; }
+  if (!text) { setStatus('Please paste some text first.', 'err'); return; }
 
-  s = s.trim();
+  const btn = document.getElementById('correctBtn');
+  btn.disabled = true;
+  setStatus('Correcting with Gemini...', 'ok');
 
-  // Capitalize standalone "i"
-  s = s.replace(/\bi\b/g, 'I');
+  const prompt = "Correct the grammar and spelling of the following text. Keep it simple and natural, " +
+    "like everyday professional email English — not overly formal or fancy. Keep the original meaning " +
+    "and roughly the same length. Return ONLY the corrected text, nothing else.\n\nText:\n" + text;
 
-  // Capitalize weekdays and months
-  const caps = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday',
-                'january','february','march','april','may','june','july','august',
-                'september','october','november','december','tomorrow'];
-  caps.forEach(w => {
-    s = s.replace(new RegExp('\\b' + w + '\\b', 'gi'), m => {
-      // keep "tomorrow" lowercase unless at start
-      if (w === 'tomorrow') return m;
-      return w.charAt(0).toUpperCase() + w.slice(1);
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + encodeURIComponent(key);
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     });
-  });
 
-  // Collapse multiple spaces
-  s = s.replace(/\s+/g, ' ').trim();
+    if (!res.ok) {
+      const errTxt = await res.text();
+      let msg = 'Error ' + res.status;
+      try { msg = JSON.parse(errTxt).error.message || msg; } catch(e){}
+      setStatus('Gemini error: ' + msg, 'err');
+      return;
+    }
 
-  // Capitalize first letter
-  if (s.length) s = s.charAt(0).toUpperCase() + s.slice(1);
+    const data = await res.json();
+    const out = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!out) { setStatus('No response from Gemini. Try again.', 'err'); return; }
 
-  // Ensure ending punctuation
-  if (s.length && !/[.!?]$/.test(s)) s += '.';
-
-  return s;
+    setOutput(out, false);
+    setStatus('Done. You can copy the result.', 'ok');
+  } catch (e) {
+    setStatus('Network error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
-function setOutput(text, isEmptyStyle) {
+function setOutput(text, isEmpty) {
   const out = document.getElementById('output');
   out.textContent = text;
-  out.classList.toggle('empty', !!isEmptyStyle);
+  out.classList.toggle('empty', !!isEmpty);
 }
 
-function setStatus(msg) {
-  document.getElementById('status').textContent = msg || '';
+function setStatus(msg, type) {
+  const s = document.getElementById('status');
+  s.textContent = msg || '';
+  s.className = 'status ' + (type || '');
 }
 
 function copyOutput() {
   const out = document.getElementById('output');
-  if (out.classList.contains('empty')) { setStatus('Nothing to copy yet.'); return; }
+  if (out.classList.contains('empty')) { setStatus('Nothing to copy yet.', 'err'); return; }
   navigator.clipboard.writeText(out.textContent)
-    .then(() => setStatus('Copied to clipboard!'))
-    .catch(() => setStatus('Could not copy automatically — select and copy manually.'));
+    .then(() => setStatus('Copied to clipboard!', 'ok'))
+    .catch(() => setStatus('Could not copy — select and copy manually.', 'err'));
 }
 
 function clearAll() {
   document.getElementById('input').value = '';
   setOutput('Your corrected text will appear here.', true);
-  setStatus('');
+  setStatus('', '');
 }
 </script>
 </body>
