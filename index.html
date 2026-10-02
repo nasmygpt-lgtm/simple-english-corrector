@@ -156,9 +156,16 @@ async function correctText() {
     "like everyday professional email English — not overly formal or fancy. Keep the original meaning " +
     "and roughly the same length. Return ONLY the corrected text, nothing else.\n\nText:\n" + text;
 
-  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + encodeURIComponent(key);
-
   try {
+    const model = await pickModel(key);
+    if (!model) {
+      setStatus('Could not find a usable Gemini model for your key. Check the key is valid.', 'err');
+      return;
+    }
+
+    const url = "https://generativelanguage.googleapis.com/v1beta/" + model +
+      ":generateContent?key=" + encodeURIComponent(key);
+
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -178,12 +185,43 @@ async function correctText() {
     if (!out) { setStatus('No response from Gemini. Try again.', 'err'); return; }
 
     setOutput(out, false);
-    setStatus('Done. You can copy the result.', 'ok');
+    setStatus('Done (model: ' + model.replace('models/','') + '). You can copy the result.', 'ok');
   } catch (e) {
     setStatus('Network error: ' + e.message, 'err');
   } finally {
     btn.disabled = false;
   }
+}
+
+// Ask Google which models this key can use, then pick the best Flash one.
+// Caches the choice so we don't list models on every correction.
+let cachedModel = null;
+async function pickModel(key) {
+  if (cachedModel) return cachedModel;
+  const listUrl = "https://generativelanguage.googleapis.com/v1beta/models?key=" + encodeURIComponent(key);
+  const res = await fetch(listUrl);
+  if (!res.ok) return null;
+  const data = await res.json();
+  const models = (data.models || [])
+    .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+    .map(m => m.name); // e.g. "models/gemini-3.8-flash"
+
+  if (!models.length) return null;
+
+  // Rank: prefer the newest "flash" (not lite, not preview), then any flash, then anything.
+  const score = (name) => {
+    const n = name.toLowerCase();
+    let s = 0;
+    if (n.includes('flash')) s += 100;
+    if (n.includes('lite')) s -= 20;
+    if (n.includes('preview') || n.includes('exp')) s -= 10;
+    const ver = n.match(/gemini-(\d+(?:\.\d+)?)/);
+    if (ver) s += parseFloat(ver[1]) * 2; // higher version wins
+    return s;
+  };
+  models.sort((a, b) => score(b) - score(a));
+  cachedModel = models[0];
+  return cachedModel;
 }
 
 function setOutput(text, isEmpty) {
